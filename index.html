@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Colabora con Instagram · CIFP Tony Gallardo</title>
+<link rel="icon" href="logo.webp">
 <style>
   :root { --bg:#fafafa; --card:#fff; --text:#262626; --muted:#737373; --line:#dbdbdb; --accent:#e1306c; }
   @media (prefers-color-scheme: dark) {
@@ -14,10 +15,12 @@
          min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
   main { width:100%; max-width:520px; background:var(--card); border:1px solid var(--line);
          border-radius:16px; padding:28px 24px; }
-  h1 { margin:0; font-size:1.7rem;
+  header { display:flex; align-items:center; gap:14px; margin-bottom:20px; }
+  header img { width:64px; height:64px; object-fit:contain; flex-shrink:0; }
+  h1 { margin:0; font-size:1.6rem; line-height:1.2;
        background:linear-gradient(45deg,#f09433,#dc2743,#bc1888); -webkit-background-clip:text;
        background-clip:text; color:transparent; }
-  h2 { margin:4px 0 20px; font-size:1rem; font-weight:500; color:var(--muted); }
+  h2 { margin:2px 0 0; font-size:1rem; font-weight:500; color:var(--muted); }
   #drop { border:2px dashed var(--line); border-radius:12px; padding:32px 16px; text-align:center;
           cursor:pointer; color:var(--muted); transition:.15s; }
   #drop.over { border-color:var(--accent); color:var(--accent); }
@@ -28,6 +31,9 @@
   li .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   li .st { color:var(--muted); flex-shrink:0; }
   li.ok .st { color:#2e9e4f; } li.err .st { color:#d32f2f; }
+  textarea { width:100%; margin-top:8px; padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+             font:inherit; font-size:.9rem; resize:vertical; min-height:56px; background:var(--bg); color:var(--text); }
+  textarea:focus { outline:2px solid var(--accent); border-color:transparent; }
   progress { width:100%; height:6px; margin-top:6px; accent-color:var(--accent); }
   button { margin-top:16px; width:100%; padding:12px; border:0; border-radius:8px; font-size:1rem;
            font-weight:600; color:#fff; background:var(--accent); cursor:pointer; }
@@ -37,8 +43,13 @@
 </head>
 <body>
 <main>
-  <h1>Colabora con Instagram</h1>
-  <h2>CIFP Tony Gallardo</h2>
+  <header>
+    <img src="logo.webp" alt="Logo CIFP Tony Gallardo" width="64" height="64">
+    <div>
+      <h1>Colabora con Instagram</h1>
+      <h2>CIFP Tony Gallardo</h2>
+    </div>
+  </header>
 
   <div id="drop" tabindex="0">
     <strong>Toca o arrastra aquí</strong> tus fotos y vídeos
@@ -46,11 +57,11 @@
   </div>
   <ul id="list"></ul>
   <button id="send" disabled>Subir archivos</button>
-  <small>Solo imágenes y vídeos. Se guardarán en la carpeta compartida del centro.</small>
+  <small>Solo imágenes y vídeos. Cada archivo necesita una descripción. Se guardarán en la carpeta compartida del centro.</small>
 </main>
 
 <script>
-// Pega aquí la URL de tu Apps Script desplegado (termina en /exec)
+// URL de tu Apps Script desplegado (termina en /exec)
 const API_URL = "https://script.google.com/macros/s/AKfycbzDlswPxzartQc_8TetM3L2AVCNa8koSBj0YuDBKwWvrJWIvhm1vM8eAorJFXS4YNqXvg/exec";
 const MAX_MB = 500;
 
@@ -69,26 +80,43 @@ function add(files) {
   for (const f of files) {
     if (!/^(image|video)\//.test(f.type)) continue;
     const li = document.createElement("li");
-    li.innerHTML = '<div class="row"><span class="name"></span><span class="st">En cola</span></div><progress value="0" max="1" hidden></progress>';
+    li.innerHTML = '<div class="row"><span class="name"></span><span class="st">En cola</span></div>' +
+      '<textarea placeholder="Descripción (obligatoria)" maxlength="2000"></textarea>' +
+      '<progress value="0" max="1" hidden></progress>';
     li.querySelector(".name").textContent = f.name;
+    li.querySelector("textarea").oninput = refresh;
     list.append(li);
-    if (f.size > MAX_MB * 1048576) { setState(li, "err", "Demasiado grande (máx. " + MAX_MB + " MB)"); continue; }
+    if (f.size > MAX_MB * 1048576) { li.querySelector("textarea").hidden = true; setState(li, "err", "Demasiado grande (máx. " + MAX_MB + " MB)"); continue; }
     queue.push({ f, li });
   }
-  send.disabled = !queue.length;
+  refresh();
+}
+
+// El botón solo se activa si todos los archivos en cola tienen descripción
+function refresh() {
+  send.disabled = !queue.length || queue.some(q => !q.li.querySelector("textarea").value.trim());
 }
 
 function setState(li, cls, text) { li.className = cls; li.querySelector(".st").textContent = text; }
 
-async function startSession(f) {
+async function call(payload) {
   const r = await fetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ name: f.name, mime: f.type, origin: location.origin })
+    body: JSON.stringify(payload)
   });
-  const j = await r.json();
+  return r.json();
+}
+
+async function startSession(f) {
+  const j = await call({ name: f.name, mime: f.type, origin: location.origin });
   if (!j.url) throw new Error(j.error || "Error del servidor");
-  return j.url;
+  return j;
+}
+
+async function saveText(base, text) {
+  const j = await call({ action: "text", base, text });
+  if (!j.ok) throw new Error(j.error || "No se guardó la descripción");
 }
 
 function put(url, f, li) {
@@ -107,10 +135,14 @@ send.onclick = async () => {
   send.disabled = true;
   const jobs = queue; queue = [];
   for (const { f, li } of jobs) {
+    const ta = li.querySelector("textarea");
     try {
+      ta.disabled = true;
       setState(li, "", "Preparando…");
-      const url = await startSession(f);
+      const { url, base } = await startSession(f);
       await put(url, f, li);
+      setState(li, "", "Guardando descripción…");
+      await saveText(base, ta.value.trim());
       li.querySelector("progress").hidden = true;
       setState(li, "ok", "✓ Subido");
     } catch (e) {

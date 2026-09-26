@@ -1,4 +1,5 @@
-// Google Apps Script: crea una sesión de subida directa a una carpeta de Drive.
+// Google Apps Script: crea una sesión de subida directa a una carpeta de Drive
+// y guarda la descripción de cada archivo como .txt con el mismo nombre.
 // La web sube el archivo directamente a Drive (sin límite de Apps Script para vídeos grandes).
 
 const FOLDER_ID = "14dyauuKRiN5smHlAt3iLhS-SQqh2C31X"; // lo que va tras /folders/ en la URL de Drive
@@ -6,9 +7,17 @@ const FOLDER_ID = "14dyauuKRiN5smHlAt3iLhS-SQqh2C31X"; // lo que va tras /folder
 function doPost(e) {
   try {
     const d = JSON.parse(e.postData.contents);
+
+    // Segunda llamada: guarda la descripción como .txt con el mismo nombre que el archivo
+    if (d.action === "text") {
+      const base = clean(d.base).replace(/\.[^.]*$/, "");
+      DriveApp.getFolderById(FOLDER_ID).createFile(base + ".txt", String(d.text || "").slice(0, 2000), MimeType.PLAIN_TEXT);
+      return out({ ok: true });
+    }
+
     if (!/^(image|video)\//.test(d.mime || "")) return out({ error: "Tipo no permitido" });
 
-    const name = String(d.name || "archivo").replace(/[\\/:*?"<>|]/g, "_").slice(0, 120);
+    const name = clean(d.name || "archivo");
     const stamp = Utilities.formatDate(new Date(), "Europe/Madrid", "yyyyMMdd-HHmmss");
 
     const resp = UrlFetchApp.fetch(
@@ -27,10 +36,14 @@ function doPost(e) {
     );
     const loc = resp.getHeaders()["Location"] || resp.getHeaders()["location"];
     if (!loc) return out({ error: "No se pudo iniciar la subida (" + resp.getResponseCode() + "): " + resp.getContentText().slice(0, 300) });
-    return out({ url: loc });
+    return out({ url: loc, base: (stamp + "_" + name).replace(/\.[^.]*$/, "") });
   } catch (err) {
     return out({ error: String(err) });
   }
+}
+
+function clean(s) {
+  return String(s).replace(/[\\/:*?"<>|]/g, "_").slice(0, 120);
 }
 
 function out(o) {
