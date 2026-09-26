@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colabora con Instagram · CIFP Tony Gallardo</title>
+<style>
+  :root { --bg:#fafafa; --card:#fff; --text:#262626; --muted:#737373; --line:#dbdbdb; --accent:#e1306c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#121212; --card:#1c1c1c; --text:#f5f5f5; --muted:#a3a3a3; --line:#333; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text);
+         min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
+  main { width:100%; max-width:520px; background:var(--card); border:1px solid var(--line);
+         border-radius:16px; padding:28px 24px; }
+  h1 { margin:0; font-size:1.7rem;
+       background:linear-gradient(45deg,#f09433,#dc2743,#bc1888); -webkit-background-clip:text;
+       background-clip:text; color:transparent; }
+  h2 { margin:4px 0 20px; font-size:1rem; font-weight:500; color:var(--muted); }
+  #drop { border:2px dashed var(--line); border-radius:12px; padding:32px 16px; text-align:center;
+          cursor:pointer; color:var(--muted); transition:.15s; }
+  #drop.over { border-color:var(--accent); color:var(--accent); }
+  #drop strong { color:var(--text); }
+  ul { list-style:none; padding:0; margin:16px 0 0; }
+  li { padding:10px 0; border-top:1px solid var(--line); font-size:.9rem; }
+  li .row { display:flex; justify-content:space-between; gap:8px; }
+  li .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  li .st { color:var(--muted); flex-shrink:0; }
+  li.ok .st { color:#2e9e4f; } li.err .st { color:#d32f2f; }
+  progress { width:100%; height:6px; margin-top:6px; accent-color:var(--accent); }
+  button { margin-top:16px; width:100%; padding:12px; border:0; border-radius:8px; font-size:1rem;
+           font-weight:600; color:#fff; background:var(--accent); cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  small { display:block; margin-top:14px; color:var(--muted); text-align:center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Colabora con Instagram</h1>
+  <h2>CIFP Tony Gallardo</h2>
+
+  <div id="drop" tabindex="0">
+    <strong>Toca o arrastra aquí</strong> tus fotos y vídeos
+    <input id="file" type="file" accept="image/*,video/*" multiple hidden>
+  </div>
+  <ul id="list"></ul>
+  <button id="send" disabled>Subir archivos</button>
+  <small>Solo imágenes y vídeos. Se guardarán en la carpeta compartida del centro.</small>
+</main>
+
+<script>
+// Pega aquí la URL de tu Apps Script desplegado (termina en /exec)
+const API_URL = "PEGA_AQUI_LA_URL_DE_APPS_SCRIPT";
+const MAX_MB = 500;
+
+const $ = id => document.getElementById(id);
+const drop = $("drop"), input = $("file"), list = $("list"), send = $("send");
+let queue = [];
+
+drop.onclick = () => input.click();
+drop.onkeydown = e => { if (e.key === "Enter") input.click(); };
+["dragover","dragenter"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => add(e.dataTransfer.files));
+input.onchange = () => { add(input.files); input.value = ""; };
+
+function add(files) {
+  for (const f of files) {
+    if (!/^(image|video)\//.test(f.type)) continue;
+    const li = document.createElement("li");
+    li.innerHTML = '<div class="row"><span class="name"></span><span class="st">En cola</span></div><progress value="0" max="1" hidden></progress>';
+    li.querySelector(".name").textContent = f.name;
+    list.append(li);
+    if (f.size > MAX_MB * 1048576) { setState(li, "err", "Demasiado grande (máx. " + MAX_MB + " MB)"); continue; }
+    queue.push({ f, li });
+  }
+  send.disabled = !queue.length;
+}
+
+function setState(li, cls, text) { li.className = cls; li.querySelector(".st").textContent = text; }
+
+async function startSession(f) {
+  const r = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ name: f.name, mime: f.type, origin: location.origin })
+  });
+  const j = await r.json();
+  if (!j.url) throw new Error(j.error || "Error del servidor");
+  return j.url;
+}
+
+function put(url, f, li) {
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest(), bar = li.querySelector("progress");
+    bar.hidden = false;
+    x.open("PUT", url);
+    x.upload.onprogress = e => { bar.value = e.loaded / e.total; setState(li, "", Math.round(100 * e.loaded / e.total) + "%"); };
+    x.onload = () => x.status < 300 ? res() : rej(new Error("Drive respondió " + x.status));
+    x.onerror = () => rej(new Error("Fallo de red"));
+    x.send(f);
+  });
+}
+
+send.onclick = async () => {
+  send.disabled = true;
+  const jobs = queue; queue = [];
+  for (const { f, li } of jobs) {
+    try {
+      setState(li, "", "Preparando…");
+      const url = await startSession(f);
+      await put(url, f, li);
+      li.querySelector("progress").hidden = true;
+      setState(li, "ok", "✓ Subido");
+    } catch (e) {
+      li.querySelector("progress").hidden = true;
+      setState(li, "err", "Error: " + e.message);
+    }
+  }
+};
+</script>
+</body>
+</html>
