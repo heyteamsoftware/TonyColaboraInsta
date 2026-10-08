@@ -38,10 +38,18 @@
   button { margin-top:16px; width:100%; padding:12px; border:0; border-radius:8px; font-size:1rem;
            font-weight:600; color:#fff; background:var(--accent); cursor:pointer; }
   button:disabled { opacity:.5; cursor:default; }
+  #visitas { position:fixed; top:12px; right:14px; display:flex; align-items:center; gap:5px; padding:4px 10px;
+             border:1px solid var(--line); border-radius:999px; background:var(--card); color:var(--muted);
+             font-size:.85rem; font-variant-numeric:tabular-nums; }
+  #visitas svg { width:16px; height:16px; fill:currentColor; }
   small { display:block; margin-top:14px; color:var(--muted); text-align:center; }
 </style>
 </head>
 <body>
+<div id="visitas" title="Visitantes únicos" aria-label="Visitantes únicos">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>
+  <span id="visitas-n">–</span>
+</div>
 <main>
   <header>
     <img src="logo.webp" alt="Logo CIFP Tony Gallardo" width="64" height="64">
@@ -151,6 +159,21 @@ send.onclick = async () => {
     }
   }
 };
+
+// Contador de visitantes únicos: identificador anónimo aleatorio por navegador
+(async () => {
+  let id = "";
+  try { id = localStorage.getItem("visitante") || ""; } catch (e) {}
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2) + "0000000000";
+    try { localStorage.setItem("visitante", id); } catch (e) {}
+  }
+  try {
+    const r = await fetch("contador.php", { method: "POST", body: new URLSearchParams({ id }) });
+    const j = await r.json();
+    if (typeof j.total === "number") $("visitas-n").textContent = j.total.toLocaleString("es-ES");
+  } catch (e) {}
+})();
 </script>
 </body>
 </html>
